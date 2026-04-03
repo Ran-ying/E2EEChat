@@ -10,6 +10,7 @@ const WebSocket = require('ws');
 const { usersSSLDir } = require("./GenerateSSL");
 const verifySignature = require("./CryptoTools").verifySignature;
 const url = require('url');
+const { ECDH } = require("crypto");
 
 // 1. 读取SSL证书
 const sslOptions = {
@@ -56,8 +57,9 @@ const httpsServer = https.createServer(sslOptions, (req, res) => {
 // 启动WebSocket服务（基于HTTPS）
 const wss = new WebSocket.Server({ server: httpsServer });
 let usersList = new Map();
+let onlineUsersList = new Map();
 let usersSSLDirList = fs.readdirSync(usersSSLDir);
-usersSSLDirList.forEach((value)=>{
+usersSSLDirList.forEach((value) => {
     usersList.set(value, {
         wsConnection: null,
         value
@@ -65,68 +67,102 @@ usersSSLDirList.forEach((value)=>{
 })
 
 wss.on('connection', (ws) => {
+    let userID = null;
     let userDir = null;
     // 生成随机用户ID
-    let generateUserID = ()=>{
+    let generateUserID = () => {
         let userID = null;
-        do{
-            userID = `user_${Math.floor(Math.random() * 100000)}`;        
+        do {
+            userID = `user_${Math.floor(Math.random() * 100000)}`;
         }
-        while(usersList.has(userID));
+        while (usersList.has(userID));
         console.log(userID);
         return userID;
     }
     let addNewUser = () => {
         let userID = generateUserID();
-        usersList.set(userID, {wsConnection: ws, userID, });
         userDir = path.join(usersSSLDir, userID);
         fs.mkdirSync(userDir);
         fs.writeFileSync(path.join(userDir, "createTime.info"), (new Date()).toUTCString());
         return userID;
     }
-    let userID = null
+    let getPubKey = () => {
+        userDir = path.join(usersSSLDir, userID);
+        return {
+            ecdsaPubKey: fs.readFileSync(path.join(userDir, "ECDSA.pub")).toString(),
+            ecdhPubKey: fs.readFileSync(path.join(userDir, "ECDH.pub")).toString(),
+        }
+    }
     ws.on('message', (data) => {
         const msg = JSON.parse(data);
         switch (msg.type) {
             case "newUser":
                 userID = addNewUser();
-                ws.send(JSON.stringify({type: "replyNewUser", userID}));
+                ws.send(JSON.stringify({ type: "replyNewUser", userID }));
                 break;
             case "uploadPublicKey":
-                userID = msg.userId;
-                //上传公钥
-                // userId,
-                // ecdsaPubKey: keyPairs.ecdsaPubKey, // ECDSA公钥（用于服务器验签）
-                // ecdhPubKey: keyPairs.ecdhPubKey,   // ECDH公钥（用于其他客户端加密）
-                // signature: signature               // 签名后的User_ID
-                let ecdsaPubKey = msg.ecdsaPubKey;
-                let ecdhPubKey = msg.ecdhPubKey;
-                let signature = msg.signature;
-                console.log(msg);
-                console.log(userID);
-                // 验签
-                const isAuthValid = verifySignature(userID, signature, ecdsaPubKey);
-                if (!isAuthValid) {
-                    ws.send(JSON.stringify({ type: 'replyUploadPublicKey', success: false}));
-                }
-                else {
-                    fs.writeFileSync(path.join(userDir, "ECDSA.pub"), ecdsaPubKey);
-                    fs.writeFileSync(path.join(userDir, "ECDH.pub"), ecdhPubKey);
-                    ws.send(JSON.stringify({type: "replyUploadPublicKey", success: true, userID}));
+                {
+                    userID = msg.userID;
+                    let ecdsaPubKey = msg.ecdsaPubKey;
+                    let ecdhPubKey = msg.ecdhPubKey;
+                    let signature = msg.signature;
+                    console.log('111')
+                    console.log(msg);
+                    console.log(userID);
+                    // 验签
+                    const isAuthValid = verifySignature(userID, signature, ecdsaPubKey);
+                    if (!isAuthValid) {
+                        usersList.set(userID, { wsConnection: ws, userID, });
+                        ws.send(JSON.stringify({ type: 'replyUploadPublicKey', success: false }));
+                    }
+                    else {
+                        fs.writeFileSync(path.join(userDir, "ECDSA.pub"), ecdsaPubKey);
+                        fs.writeFileSync(path.join(userDir, "ECDH.pub"), ecdhPubKey);
+                        ws.send(JSON.stringify({ type: "replyUploadPublicKey", success: true, userID }));
+                    }
                 }
                 break;
-            case "oldUser":
-                userID = msg.userID;
+            case "loadUser":
                 //用户上传userID的签名，用私钥加密。
                 //服务器用公钥验证签名是否正确。
+                {
+                    if(userID){
+                        onlineUsersList.delete(userID)
+                    }
+                    userID = msg.userID;
+                    let signature = msg.signature;
+                    let {ecdsaPubKey, ecdhPubKey} = getPubKey();
+                    const checkSignature = verifySignature(userID, signature, ecdsaPubKey);
+                    if (checkSignature) {
+                        onlineUsersList.set(userID, { wsConnection: ws, userID, });
+                        ws.send(JSON.stringify({
+                            type: "replyLoadUser",
+                            success: true,
+                            userID
+                        }))
+                    }
+                    else {
+                        ws.send(JSON.stringify({ type: 'replyUploadPublicKey', success: false }));
 
+                    }
+                }
+                break;
+            case "getOnlineUsersList":
+                {
+                    if(userID){
+                        ws.send(JSON.stringify({
+                            type: 'replyGetOnlineUsersList',
+                            onlineUsersList: Array.from((onlineUsersList).keys())
+                        }));
+                    }
+                }
                 break;
         }
     });
 
     // 连接关闭清理
     ws.on('close', () => {
-
+        onlineUsersList.delete(userID);
     });
 
     // 发送错误信息

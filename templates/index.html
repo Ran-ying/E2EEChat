@@ -7,13 +7,35 @@
     <script src="./crypto.js"></script>
 </head>
 <body>
-    <span id="serverStatus">serverStatus</span>
-    userID: <span id="userID"></span>
-
-    <div id="radioList"></div>
-    userPassword: <input type="password" id="userPassword">
-    <button onclick="newUser()">newUser</button>
-
+    <div>
+        <h3>Info</h3>
+        <span id="serverStatus">serverStatus</span>
+    </div>
+    <div>
+        <h3>1. Create new user</h3>
+        userPassword: <input type="password" id="userPassword">
+        <button onclick="newUser()">newUser</button>
+    </div>
+    <div>
+        <h3>2. Select operator user</h3>
+        <div id="operatorUser"></div>
+        <input id="loadUserPassword" type="password">
+        <button onclick="loadUser()">load this user</button>
+    </div>
+    <div>
+        <h3>3. nowUser</h3>
+        userID: <span id="userID"></span>
+    </div>
+    <div>
+        <h3>4. getOnlineUsersList</h3>
+        <button onclick="getOnlineUsersList()">get</button>
+        <div id="onlineUsersList"></div>
+    </div>
+    <div>
+        <h3>5. CreateWebRTCConnection</h3>
+        <button onclick="connectTargetUser()">Connect</button>
+        targetUser: <span id="targetUser"></span>
+    </div>
 
 </body>
 </html>

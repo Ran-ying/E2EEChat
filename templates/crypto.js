@@ -276,11 +276,23 @@ class WS {
                 console.log(object.success);
                 if (object.success) {
                     // 存储到localStorage（私钥加密）
-                    KeyStorage.saveKeyPairs(KeyStorage.keyPairs, WS.userID, WS.userPassword).then(()=>{
+                    KeyStorage.saveKeyPairs(KeyStorage.keyPairs, WS.userID, WS.userPassword).then(() => {
                         loadRadioList();
+                    }).then(()=>{
+                        alert("success!")
                     });
                 }
                 return;
+            case "replyLoadUser":
+                if(object.success){
+                    WS.userID = object.userID;
+                    document.getElementById('userID').textContent = object.userID;
+                    alert("success decrypt!");
+                }
+                break;
+            case "replyGetOnlineUsersList":
+                WS.loadOnlineUsersList(object.onlineUsersList)
+                break;
         }
     }
     static userID = null;
@@ -300,30 +312,79 @@ class WS {
         })
     }
 
+    static ecdsaPubKey;
+    static ecdsaPrivateKey;
+    static ecdhPubKey;
+    static ecdhPrivateKey;
+    static loadUser = async () => {
 
+        try {
+            let loadUserPassword = document.getElementById("loadUserPassword").value;
+            const {
+                ecdsaPubKey,        
+                ecdsaPrivateKey, 
+                ecdhPubKey, 
+                ecdhPrivateKey, 
+                userID
+            } = await KeyStorage.loadKeyPairs(WS.userID, loadUserPassword);;
+            this.ecdsaPubKey = ecdsaPubKey;
+            this.ecdsaPrivateKey = ecdsaPrivateKey;
+            this.ecdhPubKey = ecdhPubKey;
+            this.ecdhPrivateKey = ecdhPrivateKey;
+            this.userID = userID;
 
-    // 2. 页面加载时读取密钥对
-    static loadOldUser = async (userId, password) => {
-        // 检查是否有已存储的密钥对
-        if (KeyStorage.hasKeyPairs(userId)) {
-            try {
-                // 读取并还原密钥对
-                const keyPairs = await KeyStorage.loadKeyPairs(userId, password);
-                console.log('从localStorage还原密钥对成功：', keyPairs.userId);
-                // 后续使用keyPairs进行签名/解密
-            } catch (err) {
-                console.error('读取密钥对失败：', err);
-                // 密码错误，重新生成密钥对
-            }
+            // 3. 签名User_ID
+            const signature = await CryptoUtils.signUserId(this.ecdsaPrivateKey, userID);
+
+            // 4. 连接WebSocket并提交公钥+签名（身份认证）
+            WS.send({
+                type: 'loadUser',
+                userID,
+                signature: signature               // 签名后的User_ID
+            });
+        }
+        catch (e) {
+            alert(e.message);
         }
     }
 
-
-    static oldUser = () => {
-        KeyStorage.loadKeyPairs(WS.userID, document.getElementById("userPassword").value);
-        // WS.loadOldUser = ()
+    static getOnlineUsersList = () => {
+        WS.send({
+            type: 'getOnlineUsersList'
+        })
     }
+    static loadOnlineUsersList = (onlineUsersList) => {
+        // 3. 核心：将 keys 转换为 {value, label} 格式（forEach 实现）
+        let keys = onlineUsersList;
+        const optionData = [];
+        keys.forEach(key => {
+            // 填充选项格式
+            optionData.push({
+                value: key, // 选中时的取值（如 user_20700）
+                label: key // 页面显示的文本
+            });
+        });
+        renderRadioList("onlineUsersList", optionData, WS.bindOnlineUsersListChangeEvent);
+    }
+    static targetUser = null;
+    static bindOnlineUsersListChangeEvent = (radioName, infoContainerId) => {
+        const radioElements = document.querySelectorAll(`input[name="${radioName}"]`);
+        const infoContainer = document.getElementById(infoContainerId);
 
+        radioElements.forEach(radio => {
+            radio.addEventListener('change', function () {
+                if (this.checked) {
+                    // 这里可添加选中后的业务逻辑（如读取对应用户的密钥）
+                    WS.targetUser = this.value;
+                }
+            });
+        });
+    }
+    static connectTargetUser = () => {
+        document.getElementById('targetUser').innerHTML = WS.targetUser;
+
+        
+    }
     static uploadPublicKey = async (userId) => {
 
         // ---------------- 客户端业务逻辑 ----------------
@@ -332,7 +393,7 @@ class WS {
         // 1. 生成密钥对
         KeyStorage.keyPairs = await CryptoUtils.generateKeyPairs();
         // 2. 
-        document.getElementById('userID').textContent = userId;
+        // document.getElementById('userID').textContent = userId;
 
         // 3. 签名User_ID
         const signature = await CryptoUtils.signUserId(KeyStorage.keyPairs.ecdsaPrivateKey, userId);
@@ -341,7 +402,7 @@ class WS {
         // 4. 连接WebSocket并提交公钥+签名（身份认证）
         WS.send({
             type: 'uploadPublicKey',
-            userId,
+            userID: userId,
             ecdsaPubKey: KeyStorage.keyPairs.ecdsaPubKey, // ECDSA公钥（用于服务器验签）
             ecdhPubKey: KeyStorage.keyPairs.ecdhPubKey,   // ECDH公钥（用于其他客户端加密）
             signature: signature               // 签名后的User_ID
@@ -504,11 +565,11 @@ class KeyStorage {
 
         // 3. 还原完整密钥对
         return {
-            ecdsaPrivateKey,
-            ecdhPrivateKey,
             ecdsaPubKey: storageObj.ecdsaPubKey,
+            ecdsaPrivateKey,
             ecdhPubKey: storageObj.ecdhPubKey,
-            userId: storageObj.userId
+            ecdhPrivateKey,
+            userID: storageObj.userId
         };
     }
 
@@ -530,7 +591,7 @@ class KeyStorage {
         return !!localStorage.getItem(this.STORAGE_PREFIX + userId);
     }
 
-    static getLocalStorageUserKeys(){
+    static getLocalStorageUserKeys() {
         const keys = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -555,13 +616,21 @@ let newUser = () => {
 let oldUser = () => {
     WS.oldUser();
 }
-
+let loadUser = () => {
+    WS.loadUser();
+}
+let getOnlineUsersList = () => {
+    WS.getOnlineUsersList();
+}
+let connectTargetUser = () => {
+    WS.connectTargetUser();
+}
 window.onload = () => {
-    loadRadioList();
+    loadOperatorUser();
 }
 //////////////////WS
 
-let loadRadioList = ()=>{
+let loadOperatorUser = () => {
     let keys = KeyStorage.getLocalStorageUserKeys();
 
     // 3. 核心：将 keys 转换为 {value, label} 格式（forEach 实现）
@@ -576,10 +645,10 @@ let loadRadioList = ()=>{
             label: `${userId}` // 页面显示的文本
         });
     });
-    renderRadioList('radioList', optionData);
+    renderRadioList("operatorUser", optionData, bindOperatorUserChangeEvent);
 }
 
-function renderRadioList(containerId, options, defaultSelected = '') {
+function renderRadioList(containerId, options, bindRadioChangeEvent) {
     const container = document.getElementById(containerId);
     if (!container) {
         console.error('容器不存在：', containerId);
@@ -597,13 +666,14 @@ function renderRadioList(containerId, options, defaultSelected = '') {
         // 1. 创建单选框DOM
         const radioInput = document.createElement('input');
         radioInput.type = 'radio';
-        radioInput.name = 'userSelect'; // 同一组单选框name必须相同
+        radioInput.name = `${containerId}Select`; // 同一组单选框name必须相同
         radioInput.id = `radio_${option.value}_${index}`; // 唯一ID（避免冲突）
         radioInput.value = option.value;
         // 设置默认选中
-        if (option.value === defaultSelected) {
-            radioInput.checked = true;
-        }
+        // if (option.value === defaultSelected) {
+        // if (index === 0) {
+        //     radioInput.checked = true;
+        // }
 
         // 2. 创建标签（关联单选框，点击文字也能选中）
         const radioLabel = document.createElement('label');
@@ -622,7 +692,14 @@ function renderRadioList(containerId, options, defaultSelected = '') {
     });
 
     // 监听选中状态变化
-    bindRadioChangeEvent('userSelect', 'selectedInfo');
+    switch(containerId){
+        case "operatorUser":
+            bindRadioChangeEvent(`${containerId}Select`, 'selectedInfo');
+            break;
+        case "onlineUsersList":
+            bindRadioChangeEvent(`${containerId}Select`, 'selectedInfo');
+            break;
+    }
 }
 
 /**
@@ -630,19 +707,19 @@ function renderRadioList(containerId, options, defaultSelected = '') {
  * @param {string} radioName - 单选框组的name
  * @param {string} infoContainerId - 显示选中信息的容器ID
  */
-function bindRadioChangeEvent(radioName, infoContainerId) {
+function bindOperatorUserChangeEvent(radioName, infoContainerId) {
     const radioElements = document.querySelectorAll(`input[name="${radioName}"]`);
     const infoContainer = document.getElementById(infoContainerId);
 
     radioElements.forEach(radio => {
-        radio.addEventListener('change', function() {
+        radio.addEventListener('change', function () {
             if (this.checked) {
                 // 这里可添加选中后的业务逻辑（如读取对应用户的密钥）
                 const userID = this.value.replace(KeyStorage.STORAGE_PREFIX, '');
 
                 console.log('选中的用户ID：', userID);
                 // 2. 
-                document.getElementById('userID').textContent = userID;
+                // document.getElementById('userID').textContent = userID;
                 WS.userID = userID;
             }
         });
