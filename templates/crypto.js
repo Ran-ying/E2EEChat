@@ -278,21 +278,44 @@ class WS {
                     // 存储到localStorage（私钥加密）
                     KeyStorage.saveKeyPairs(KeyStorage.keyPairs, WS.userID, WS.userPassword).then(() => {
                         loadRadioList();
-                    }).then(()=>{
-                        alert("success!")
+                    }).then(() => {
+                        // alert("success!")
                     });
                 }
                 return;
             case "replyLoadUser":
-                if(object.success){
+                if (object.success) {
                     WS.userID = object.userID;
                     document.getElementById('userID').textContent = object.userID;
-                    alert("success decrypt!");
+                    // alert("success decrypt!");
                 }
                 break;
             case "replyGetOnlineUsersList":
                 WS.loadOnlineUsersList(object.onlineUsersList)
                 break;
+            case "WebRTCice": // ✅ 必须加！
+                WebRTC.addIceCandidate(object.candidate);
+                break;
+            case "WebRTCcallee":
+                WebRTC.receivePeerConnection(object.offer, object.sourceUser).then((answer)=>{
+                    WebRTC.calleeUserID = object.targetUser;
+                    document.getElementById("callee").innerHTML = object.targetUser;
+                    WebRTC.callerUserID = object.sourceUser;
+                    document.getElementById("caller").innerHTML = object.sourceUser;
+                    WS.send({
+                        type: "WebRTCcalleeAnswer",
+                        sourceUser: object.sourceUser,
+                        answer,
+                    })
+                });
+                break;
+            case "WebRTCcallerAnswer":
+                WebRTC.setAnswerPeerConnection(object.answer).then(()=>{
+                    WebRTC.calleeUserID = object.targetUser;
+                    document.getElementById("callee").innerHTML = object.targetUser;
+                    WebRTC.callerUserID = object.sourceUser;
+                    document.getElementById("caller").innerHTML = object.sourceUser;
+                })
         }
     }
     static userID = null;
@@ -321,10 +344,10 @@ class WS {
         try {
             let loadUserPassword = document.getElementById("loadUserPassword").value;
             const {
-                ecdsaPubKey,        
-                ecdsaPrivateKey, 
-                ecdhPubKey, 
-                ecdhPrivateKey, 
+                ecdsaPubKey,
+                ecdsaPrivateKey,
+                ecdhPubKey,
+                ecdhPrivateKey,
                 userID
             } = await KeyStorage.loadKeyPairs(WS.userID, loadUserPassword);;
             this.ecdsaPubKey = ecdsaPubKey;
@@ -380,10 +403,15 @@ class WS {
             });
         });
     }
-    static connectTargetUser = () => {
+    static connectTargetUser = async () => {
+        if(!this.targetUser) return;
         document.getElementById('targetUser').innerHTML = WS.targetUser;
-
-        
+        let offer = await WebRTC.createPeerConnection(this.targetUser);
+        WS.send({
+            type: "WebRTCcaller",
+            targetUser: WS.targetUser,
+            offer
+        })
     }
     static uploadPublicKey = async (userId) => {
 
@@ -408,6 +436,108 @@ class WS {
             signature: signature               // 签名后的User_ID
         });
     }
+}
+
+class WebRTC {
+    static config = {
+        iceServers: [
+            
+        ]
+    };
+    static callerUserID = null;
+    static callerPC = null;
+    static callerChannel = null;
+    static calleeUserID = null;
+    static calleePC = null;
+    static calleeChannel = null;
+
+    // ========== A 发起方 ==========
+    static createPeerConnection = async (targetUserID) => {
+        WebRTC.callerPC = new RTCPeerConnection(WebRTC.config);
+
+        // 通道
+        WebRTC.callerChannel = WebRTC.callerPC.createDataChannel("chat");
+        WebRTC.callerChannel.onmessage = (e) => {
+            document.getElementById("originMessagePanel").innerHTML += `${WebRTC.calleeUserID}: ${e.data}<br>`;
+        };
+        WebRTC.callerChannel.onopen = () => {
+            console.log('✅ A 通道打开！');
+        };
+
+        // ========== ✅ ICE 必须写 ==========
+        WebRTC.callerPC.onicecandidate = (event) => {
+            if (event.candidate) {
+                WS.send({
+                    type: "WebRTCice",
+                    targetUser: targetUserID,
+                    candidate: event.candidate
+                });
+            }
+        };
+
+        const offer = await WebRTC.callerPC.createOffer();
+        await WebRTC.callerPC.setLocalDescription(offer);
+        return offer;
+    };
+
+    // ========== B 接收方 ==========
+    static receivePeerConnection = async (offer, sourceUserID) => {
+        WebRTC.calleePC = new RTCPeerConnection(WebRTC.config);
+
+        // 通道监听
+        WebRTC.calleePC.ondatachannel = (e) => {
+            WebRTC.calleeChannel = e.channel;
+            WebRTC.calleeChannel.onmessage = (e) => {
+                document.getElementById("originMessagePanel").innerHTML += `${WebRTC.callerUserID}: ${e.data}<br>`;
+            };
+            WebRTC.calleeChannel.onopen = () => {
+                console.log('✅ B 通道打开！');
+            };
+        };
+
+        // ========== ✅ ICE 必须写 ==========
+        WebRTC.calleePC.onicecandidate = (event) => {
+            if (event.candidate) {
+                WS.send({
+                    type: "WebRTCice",
+                    targetUser: sourceUserID,
+                    candidate: event.candidate
+                });
+            }
+        };
+
+        await WebRTC.calleePC.setRemoteDescription(offer);
+        const answer = await WebRTC.calleePC.createAnswer();
+        await WebRTC.calleePC.setLocalDescription(answer);
+        return answer;
+    };
+
+    // ========== A 设置 Answer ==========
+    static setAnswerPeerConnection = async (answer) => {
+        await WebRTC.callerPC.setRemoteDescription(answer);
+    };
+
+    // ========== 安全发送消息（永不报错） ==========
+    static sendOriginMessage = (message) => {
+        let channel;
+        if (WebRTC.callerChannel) channel = WebRTC.callerChannel;
+        if (WebRTC.calleeChannel) channel = WebRTC.calleeChannel;
+
+        if (channel && channel.readyState === 'open') {
+            channel.send(message);
+            document.getElementById("originMessagePanel").innerHTML += `Me: ${message}<br>`;
+        } else {
+            console.warn("⚠️ 通道未打开！");
+        }
+    };
+
+    // ========== ✅ 新增：添加 ICE 方法 ==========
+    static addIceCandidate = async (candidate) => {
+        const pc = WebRTC.callerPC || WebRTC.calleePC;
+        if (pc) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+    };
 }
 
 /**
@@ -625,6 +755,10 @@ let getOnlineUsersList = () => {
 let connectTargetUser = () => {
     WS.connectTargetUser();
 }
+let sendOriginMessage = () => {
+    let message = document.getElementById("originMessage").value;
+    WebRTC.sendOriginMessage(message);
+}
 window.onload = () => {
     loadOperatorUser();
 }
@@ -692,7 +826,7 @@ function renderRadioList(containerId, options, bindRadioChangeEvent) {
     });
 
     // 监听选中状态变化
-    switch(containerId){
+    switch (containerId) {
         case "operatorUser":
             bindRadioChangeEvent(`${containerId}Select`, 'selectedInfo');
             break;

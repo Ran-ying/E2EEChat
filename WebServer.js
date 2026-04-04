@@ -11,6 +11,7 @@ const { usersSSLDir } = require("./GenerateSSL");
 const verifySignature = require("./CryptoTools").verifySignature;
 const url = require('url');
 const { ECDH } = require("crypto");
+const { type } = require("os");
 
 // 1. 读取SSL证书
 const sslOptions = {
@@ -126,6 +127,14 @@ wss.on('connection', (ws) => {
                 //用户上传userID的签名，用私钥加密。
                 //服务器用公钥验证签名是否正确。
                 {
+                    // console.log(usersList.keys());
+                    if(!usersList.has(msg.userID)){
+                        ws.send(JSON.stringify({
+                            type: "replyLoadUser",
+                            success: false,
+                        }))
+                        return;
+                    }
                     if(userID){
                         onlineUsersList.delete(userID)
                     }
@@ -152,9 +161,58 @@ wss.on('connection', (ws) => {
                     if(userID){
                         ws.send(JSON.stringify({
                             type: 'replyGetOnlineUsersList',
-                            onlineUsersList: Array.from((onlineUsersList).keys())
+                            onlineUsersList: Array.from((onlineUsersList).keys()).filter(id => id !== userID),
                         }));
                     }
+                }
+                break;
+            case "WebRTCcaller":
+                try{
+                    let targetUser = msg.targetUser;
+                    let offer = msg.offer;
+                    if(onlineUsersList.has(targetUser)){
+                        let targetUserObject = onlineUsersList.get(targetUser);
+                        targetUserObject.wsConnection.send(JSON.stringify({
+                            type: "WebRTCcallee",
+                            sourceUser: userID,
+                            targetUser,
+                            offer,
+                        }))
+                    }
+                }catch(e){
+                    console.log(e.message)
+                }
+                break;
+            case "WebRTCcalleeAnswer":
+                {
+                    let sourceUser = msg.sourceUser;
+                    let answer = msg.answer;
+                    if(onlineUsersList.has(sourceUser)){
+                        let sourceUserObject = onlineUsersList.get(sourceUser);
+                        sourceUserObject.wsConnection.send(JSON.stringify({
+                            type: "WebRTCcallerAnswer",
+                            sourceUser,
+                            targetUser: userID,
+                            answer,
+                        }))
+                    }
+                }
+                break;
+            case "WebRTCice":
+                try {
+                    // 转发 ICE 到目标用户
+                    let targetUser = msg.targetUser;
+                    let candidate = msg.candidate;
+
+                    if (onlineUsersList.has(targetUser)) {
+                        let target = onlineUsersList.get(targetUser);
+                        target.wsConnection.send(JSON.stringify({
+                            type: "WebRTCice",
+                            candidate: candidate
+                        }));
+                    }
+                } catch (e) {
+                    console.log("ICE 转发错误", e.message);
                 }
                 break;
         }
