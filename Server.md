@@ -1,3 +1,35 @@
+# Coturn
+
+apt update -y
+apt install coturn -y
+
+sed -i 's/#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/' /etc/default/coturn
+
+cat > /etc/turnserver.conf << EOF
+realm=e2ee.rany.ing
+server-name=e2ee.rany.ing
+listening-port=3478
+tls-listening-port=5349
+fingerprint
+lt-cred-mech
+user=e2ee:123456
+stale-nonce
+cert=/etc/letsencrypt/live/e2ee.rany.ing/fullchain.pem
+pkey=/etc/letsencrypt/live/e2ee.rany.ing/privkey.pem
+EOF
+
+systemctl restart coturn
+systemctl enable coturn
+
+ufw allow 3478/tcp
+ufw allow 3478/udp
+ufw allow 5349/tcp
+ufw allow 5349/udp
+ufw reload
+
+# Code
+
+
 cd /root
 git clone https://github.com/Ran-ying/E2EEChat.git
 cd E2EEChat

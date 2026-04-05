@@ -569,12 +569,14 @@ class OOB {
 class WebRTC {
     static config = {
         iceServers: [
-            { urls: "stun:stun.cloudflare.com:3478" },
-            { urls: "stun:stun.l.google.com:19302" },
+            // 你自己的 STUN 服务器
+            { urls: "stun:e2ee.rany.ing:3478" },
+            
+            // 你自己的 TURN 服务器（中继必备，毕设核心）
             {
-                urls: "turn:relay.metered.ca:80",
-                username: "openrelayproject",
-                credential: "openrelayproject"
+                urls: "turn:e2ee.rany.ing:3478",
+                username: "e2ee",
+                credential: "123456"
             }
         ]
     };
