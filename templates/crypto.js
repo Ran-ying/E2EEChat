@@ -119,6 +119,33 @@ class CryptoUtils {
 
         return new TextDecoder().decode(decrypted);
     }
+    // === 7. 验证 ECDSA 签名（你缺少的核心方法） ===
+    static async verifySignature(ecdsaPubKeyBase64, originalData, signatureBase64) {
+        try {
+            // 1. 导入对方的 ECDSA 公钥
+            const ecdsaPubKey = await this.importPublicKey(ecdsaPubKeyBase64, 'ECDSA');
+
+            // 2. 把原始内容转成字节
+            const encoder = new TextEncoder();
+            const dataBytes = encoder.encode(originalData);
+
+            // 3. 把签名 base64 转回字节
+            const signatureBytes = Uint8Array.from(atob(signatureBase64), c => c.charCodeAt(0));
+
+            // 4. 验证！
+            const isValid = await crypto.subtle.verify(
+                { name: 'ECDSA', hash: 'SHA-256' },
+                ecdsaPubKey,
+                signatureBytes,
+                dataBytes
+            );
+
+            return isValid; // true = 验签成功
+        } catch (e) {
+            console.error('验签失败', e);
+            return false;
+        }
+    }
 }
 
 ////////////WS
@@ -269,15 +296,15 @@ class WS {
         switch (object.type) {
             case "replyNewUser":
                 WS.userID = object.userID;
-                console.log(object.type);
+                // console.log(object.type);
                 WS.uploadPublicKey(WS.userID);
                 return;
             case "replyUploadPublicKey":
-                console.log(object.success);
+                // console.log(object.success);
                 if (object.success) {
                     // 存储到localStorage（私钥加密）
                     KeyStorage.saveKeyPairs(KeyStorage.keyPairs, WS.userID, WS.userPassword).then(() => {
-                        loadRadioList();
+                        loadOperatorUser();
                     }).then(() => {
                         // alert("success!")
                     });
@@ -287,7 +314,12 @@ class WS {
                 if (object.success) {
                     WS.userID = object.userID;
                     document.getElementById('userID').textContent = object.userID;
+                    WS.getOnlineUsersList();
                     // alert("success decrypt!");
+                }
+                else {
+                    KeyStorage.deleteKeyPairs(WS.userID);
+                    loadOperatorUser();
                 }
                 break;
             case "replyGetOnlineUsersList":
@@ -297,24 +329,86 @@ class WS {
                 WebRTC.addIceCandidate(object.candidate);
                 break;
             case "WebRTCcallee":
-                WebRTC.receivePeerConnection(object.offer, object.sourceUser).then((answer)=>{
-                    WebRTC.calleeUserID = object.targetUser;
-                    document.getElementById("callee").innerHTML = object.targetUser;
+                //这是 Callee 收到服务器的消息，最终处理
+                WebRTC.receivePeerConnection(object.offer, object.sourceUser).then(async (answer) => {
+                    WS.targetUser = object.sourceUser
+
+                    WS.otherecdhPubKey = object.sourceUserECDHPubKey;
+                    WS.otherecdsaPubKey = object.sourceUserECDSAPubKey;
+
+                    document.getElementById("OOBmyUserID").innerHTML = WS.userID;
+                    document.getElementById("OOBmyECDH").innerHTML = await OOB.getEmojiFingerprint(WS.ecdhPubKey);
+                    document.getElementById("OOBmyECDSA").innerHTML = await OOB.getEmojiFingerprint(WS.ecdsaPubKey);
+                    document.getElementById("OOBotherUserID").innerHTML = object.sourceUser;
+                    document.getElementById("OOBotherECDH").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdhPubKey);
+                    document.getElementById("OOBotherECDSA").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdsaPubKey);
+
                     WebRTC.callerUserID = object.sourceUser;
-                    document.getElementById("caller").innerHTML = object.sourceUser;
-                    WS.send({
-                        type: "WebRTCcalleeAnswer",
-                        sourceUser: object.sourceUser,
-                        answer,
-                    })
+                    WebRTC.calleeUserID = object.targetUser;
+
+                    document.getElementById("OOBmyInfo").innerHTML = `(Me, Callee)`
+                    document.getElementById("OOBotherInfo").innerHTML = `(Other, Caller)`
+                    // document.getElementById("callee").innerHTML = object.targetUser;
+                    // WebRTC.callerUserID = object.sourceUser;
+                    // document.getElementById("caller").innerHTML = object.sourceUser;
+                    //验证caller签名
+                    const isValid = await CryptoUtils.verifySignature(
+                        WS.otherecdsaPubKey,
+                        WS.targetUser,
+                        object.signature
+                    )
+                    if (isValid) {
+                        document.getElementById("OOBotherInfo").innerHTML += `✅`
+                        //给出自己的 callee 签名
+                        let signature = await CryptoUtils.signUserId(WS.ecdsaPrivateKey, WS.userID);
+                        WS.send({
+                            type: "WebRTCcalleeAnswer",
+                            sourceUser: object.sourceUser,
+                            answer,
+                            signature,
+                        })
+                    }
+                    else {
+                        document.getElementById("OOBotherInfo").innerHTML += `❌`
+                    }
                 });
                 break;
             case "WebRTCcallerAnswer":
-                WebRTC.setAnswerPeerConnection(object.answer).then(()=>{
-                    WebRTC.calleeUserID = object.targetUser;
-                    document.getElementById("callee").innerHTML = object.targetUser;
+                //这是 Caller 收到服务器的消息，最终处理
+                WebRTC.setAnswerPeerConnection(object.answer).then(async () => {
+                    WS.otherecdhPubKey = object.targetUserECDHPubKey;
+                    WS.otherecdsaPubKey = object.targetUserECDSAPubKey;
+
+
                     WebRTC.callerUserID = object.sourceUser;
-                    document.getElementById("caller").innerHTML = object.sourceUser;
+                    WebRTC.calleeUserID = object.targetUser;
+                    // document.getElementById("callee").innerHTML = object.targetUser;
+                    // WebRTC.callerUserID = object.sourceUser;
+                    // document.getElementById("caller").innerHTML = object.sourceUser;
+                    document.getElementById("OOBmyInfo").innerHTML = `(Me, Caller)`
+                    document.getElementById("OOBotherInfo").innerHTML = `(Other, Callee)`
+
+
+                    document.getElementById("OOBmyUserID").innerHTML = WS.userID;
+                    document.getElementById("OOBmyECDH").innerHTML = await OOB.getEmojiFingerprint(WS.ecdhPubKey);
+                    document.getElementById("OOBmyECDSA").innerHTML = await OOB.getEmojiFingerprint(WS.ecdsaPubKey);
+                    document.getElementById("OOBotherUserID").innerHTML = WebRTC.calleeUserID;
+                    document.getElementById("OOBotherECDH").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdhPubKey);
+                    document.getElementById("OOBotherECDSA").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdsaPubKey);
+
+                    //验证callee签名
+                    const isValid = await CryptoUtils.verifySignature(
+                        WS.otherecdsaPubKey,
+                        WS.targetUser,
+                        object.signature
+                    )
+                    if (isValid) {
+                        document.getElementById("OOBotherInfo").innerHTML += `✅`
+                    }
+                    else {
+                        document.getElementById("OOBotherInfo").innerHTML += `❌`
+                    }
+
                 })
         }
     }
@@ -339,6 +433,8 @@ class WS {
     static ecdsaPrivateKey;
     static ecdhPubKey;
     static ecdhPrivateKey;
+    static otherecdsaPubKey;
+    static otherecdhPubKey;
     static loadUser = async () => {
 
         try {
@@ -404,14 +500,19 @@ class WS {
         });
     }
     static connectTargetUser = async () => {
-        if(!this.targetUser) return;
+        if (!this.targetUser) return;
         document.getElementById('targetUser').innerHTML = WS.targetUser;
         let offer = await WebRTC.createPeerConnection(this.targetUser);
+        let signature = await CryptoUtils.signUserId(WS.ecdsaPrivateKey, WS.userID);
         WS.send({
             type: "WebRTCcaller",
             targetUser: WS.targetUser,
-            offer
+            offer,
+            signature,
         })
+    }
+    // 6. 发送加密消息给其他客户端
+    static sendEncryptedMessage = async (peerUserId, message) => {
     }
     static uploadPublicKey = async (userId) => {
 
@@ -438,10 +539,37 @@ class WS {
     }
 }
 
+class OOB {
+    // 64 个安全表情（和 Signal 一致）
+    static EMOJIS = [
+        '😀', '😁', '😂', '🤣', '😃', '😄', '😅', '😆',
+        '😇', '😈', '👿', '😉', '😊', '😋', '😌', '😍',
+        '😎', '😏', '😐', '😑', '😒', '😓', '😔', '😕',
+        '😖', '😗', '😘', '😙', '😚', '😛', '😜', '😝',
+        '😞', '😟', '😠', '😡', '😢', '😣', '😤', '😥',
+        '😦', '😧', '😨', '😩', '😪', '😫', '🥱', '😬',
+        '😭', '😮', '😯', '😰', '😱', '😲', '😳', '😴',
+        '😵', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🤠'
+    ];
+
+    static getEmojiFingerprint = async (ecdhPubKeyBase64) => {
+        const rawKey = Uint8Array.from(atob(ecdhPubKeyBase64), c => c.charCodeAt(0));
+        const hash = await crypto.subtle.digest('SHA-256', rawKey);
+        const view = new DataView(hash);
+
+        let emojis = [];
+        for (let i = 0; i < 4; i++) {
+            const num = view.getUint8(i) % 64;
+            emojis.push(OOB.EMOJIS[num]);
+        }
+        return emojis.join(' ');
+    }
+}
+
 class WebRTC {
     static config = {
         iceServers: [
-            
+
         ]
     };
     static callerUserID = null;
@@ -458,7 +586,7 @@ class WebRTC {
         // 通道
         WebRTC.callerChannel = WebRTC.callerPC.createDataChannel("chat");
         WebRTC.callerChannel.onmessage = (e) => {
-            document.getElementById("originMessagePanel").innerHTML += `${WebRTC.calleeUserID}: ${e.data}<br>`;
+            WebRTC.receiveOriginMessage(e);
         };
         WebRTC.callerChannel.onopen = () => {
             console.log('✅ A 通道打开！');
@@ -488,7 +616,7 @@ class WebRTC {
         WebRTC.calleePC.ondatachannel = (e) => {
             WebRTC.calleeChannel = e.channel;
             WebRTC.calleeChannel.onmessage = (e) => {
-                document.getElementById("originMessagePanel").innerHTML += `${WebRTC.callerUserID}: ${e.data}<br>`;
+                WebRTC.receiveOriginMessage(e);
             };
             WebRTC.calleeChannel.onopen = () => {
                 console.log('✅ B 通道打开！');
@@ -518,18 +646,88 @@ class WebRTC {
     };
 
     // ========== 安全发送消息（永不报错） ==========
-    static sendOriginMessage = (message) => {
-        let channel;
-        if (WebRTC.callerChannel) channel = WebRTC.callerChannel;
-        if (WebRTC.calleeChannel) channel = WebRTC.calleeChannel;
+    static sendOriginMessage = async (message) => {
+        return new Promise((resolve, reject) => {
+            let channel;
+            if (WebRTC.callerChannel) channel = WebRTC.callerChannel;
+            if (WebRTC.calleeChannel) channel = WebRTC.calleeChannel;
 
-        if (channel && channel.readyState === 'open') {
-            channel.send(message);
-            document.getElementById("originMessagePanel").innerHTML += `Me: ${message}<br>`;
-        } else {
-            console.warn("⚠️ 通道未打开！");
-        }
+            if (channel && channel.readyState === 'open') {
+                channel.send(message);
+                // ✅ 安全显示原始消息（纯文本，不执行HTML）
+                let originPanel = document.getElementById("originMessagePanel");
+                let text1 = document.createTextNode(`Me: ${message}`);
+                originPanel.appendChild(text1);
+                originPanel.appendChild(document.createElement("br"));
+                resolve();
+            } else {
+                console.warn("⚠️ 通道未打开！");
+                reject("⚠️ 通道未打开！");
+            }
+        })
     };
+
+    static sendEncryptedMessage = async (message) => {
+
+        // 用对方的ECDH公钥加密消息
+        const encryptedMessage = await CryptoUtils.encryptWithPeerPubKey(
+            WS.ecdhPrivateKey,
+            WS.otherecdhPubKey,
+            message
+        );
+
+        let answer = JSON.stringify({
+            type: "encryptedMessage",
+            encryptedMessage,
+        })
+        // 发送加密消息
+        await WebRTC.sendOriginMessage(answer);
+
+        // ✅ 安全显示解密消息（绝对防XSS）
+        let encPanel = document.getElementById("encryptedMessagePanel");
+        let text2 = document.createTextNode(`Me: ${message}`);
+        encPanel.appendChild(text2);
+        encPanel.appendChild(document.createElement("br"));
+    }
+
+    static receiveOriginMessage = async (e) => {
+        try {
+            let answer = JSON.parse(e.data);
+            switch (answer.type) {
+                case "encryptedMessage":
+
+                    // ✅ 安全显示原始消息（纯文本，不执行HTML）
+                    let originPanel = document.getElementById("originMessagePanel");
+                    let text1 = document.createTextNode(`${WS.targetUser}: ${e.data}`);
+                    originPanel.appendChild(text1);
+                    originPanel.appendChild(document.createElement("br"));
+
+                    // 解密
+                    let decryptedMsg = await CryptoUtils.decryptWithPrivateKey(
+                        WS.ecdhPrivateKey,
+                        WS.otherecdhPubKey,
+                        answer.encryptedMessage
+                    );
+
+                    // ✅ 安全显示解密消息（绝对防XSS）
+                    let encPanel = document.getElementById("encryptedMessagePanel");
+                    let text2 = document.createTextNode(`${WS.targetUser}: ${decryptedMsg}`);
+                    encPanel.appendChild(text2);
+                    encPanel.appendChild(document.createElement("br"));
+
+                    break;
+
+                default:
+                    throw Error();
+            }
+        } catch (ex) {
+            // ✅ 安全显示错误消息
+            let originPanel = document.getElementById("originMessagePanel");
+            let text = document.createTextNode(`${WS.targetUser}: ${e.data}`);
+            originPanel.appendChild(text);
+            originPanel.appendChild(document.createElement("br"));
+        }
+    }
 
     // ========== ✅ 新增：添加 ICE 方法 ==========
     static addIceCandidate = async (candidate) => {
@@ -545,6 +743,8 @@ class WebRTC {
  * 核心：私钥加密后存localStorage，公钥明文存储
  */
 class KeyStorage {
+
+
     static keyPairs = null;
     // 存储密钥的前缀（避免冲突）
     static STORAGE_PREFIX = 'e2ee_keypair_';
@@ -743,9 +943,6 @@ setInterval(() => {
 let newUser = () => {
     WS.newUser();
 }
-let oldUser = () => {
-    WS.oldUser();
-}
 let loadUser = () => {
     WS.loadUser();
 }
@@ -758,6 +955,10 @@ let connectTargetUser = () => {
 let sendOriginMessage = () => {
     let message = document.getElementById("originMessage").value;
     WebRTC.sendOriginMessage(message);
+}
+let sendEncryptedMessage = () => {
+    let message = document.getElementById("encryptedMessage").value;
+    WebRTC.sendEncryptedMessage(message)
 }
 window.onload = () => {
     loadOperatorUser();
@@ -859,46 +1060,3 @@ function bindOperatorUserChangeEvent(radioName, infoContainerId) {
         });
     });
 }
-
-
-// // 6. 发送加密消息给其他客户端
-// async function sendEncryptedMessage(peerUserId, message) {
-//     // 先获取对方的ECDH公钥
-//     const peerEcdhPubKey = await new Promise(resolve => {
-//         ws.onmessage = (e) => {
-//             const msg = JSON.parse(e.data);
-//             if (msg.type === 'peer-pubkey' && msg.peerUserId === peerUserId) {
-//                 resolve(msg.ecdhPubKey);
-//             }
-//         };
-//         getPeerPubKey(peerUserId);
-//     });
-
-//     // 用对方的ECDH公钥加密消息
-//     const encrypted = await CryptoUtils.encryptWithPeerPubKey(
-//         keyPairs.ecdhPrivateKey,
-//         peerEcdhPubKey,
-//         message
-//     );
-
-//     // 发送加密消息
-//     ws.send(JSON.stringify({
-//         type: 'send-encrypted-msg',
-//         peerUserId,
-//         encryptedData: encrypted
-//     }));
-// }
-
-// // 7. 接收并解密消息
-// ws.onmessage = async (e) => {
-//     const msg = JSON.parse(e.data);
-//     if (msg.type === 'encrypted-msg') {
-//         // 用自己的ECDH私钥解密
-//         const decryptedMsg = await CryptoUtils.decryptWithPrivateKey(
-//             keyPairs.ecdhPrivateKey,
-//             msg.senderEcdhPubKey,
-//             msg.encryptedData
-//         );
-//         console.log('解密后的消息：', decryptedMsg);
-//     }
-// };

@@ -87,7 +87,7 @@ wss.on('connection', (ws) => {
         fs.writeFileSync(path.join(userDir, "createTime.info"), (new Date()).toUTCString());
         return userID;
     }
-    let getPubKey = () => {
+    let getPubKey = (userID) => {
         userDir = path.join(usersSSLDir, userID);
         return {
             ecdsaPubKey: fs.readFileSync(path.join(userDir, "ECDSA.pub")).toString(),
@@ -107,16 +107,16 @@ wss.on('connection', (ws) => {
                     let ecdsaPubKey = msg.ecdsaPubKey;
                     let ecdhPubKey = msg.ecdhPubKey;
                     let signature = msg.signature;
-                    console.log('111')
-                    console.log(msg);
-                    console.log(userID);
+                    // console.log('111')
+                    // console.log(msg);
+                    // console.log(userID);
                     // 验签
                     const isAuthValid = verifySignature(userID, signature, ecdsaPubKey);
                     if (!isAuthValid) {
-                        usersList.set(userID, { wsConnection: ws, userID, });
                         ws.send(JSON.stringify({ type: 'replyUploadPublicKey', success: false }));
                     }
                     else {
+                        usersList.set(userID, { wsConnection: ws, userID, });
                         fs.writeFileSync(path.join(userDir, "ECDSA.pub"), ecdsaPubKey);
                         fs.writeFileSync(path.join(userDir, "ECDH.pub"), ecdhPubKey);
                         ws.send(JSON.stringify({ type: "replyUploadPublicKey", success: true, userID }));
@@ -126,7 +126,7 @@ wss.on('connection', (ws) => {
             case "loadUser":
                 //用户上传userID的签名，用私钥加密。
                 //服务器用公钥验证签名是否正确。
-                {
+                try {
                     // console.log(usersList.keys());
                     if(!usersList.has(msg.userID)){
                         ws.send(JSON.stringify({
@@ -140,7 +140,7 @@ wss.on('connection', (ws) => {
                     }
                     userID = msg.userID;
                     let signature = msg.signature;
-                    let {ecdsaPubKey, ecdhPubKey} = getPubKey();
+                    let {ecdsaPubKey, ecdhPubKey} = getPubKey(userID);
                     const checkSignature = verifySignature(userID, signature, ecdsaPubKey);
                     if (checkSignature) {
                         onlineUsersList.set(userID, { wsConnection: ws, userID, });
@@ -154,6 +154,8 @@ wss.on('connection', (ws) => {
                         ws.send(JSON.stringify({ type: 'replyUploadPublicKey', success: false }));
 
                     }
+                }catch(e) {
+                    ws.send(JSON.stringify({ type: 'replyLoadUser', success: false }));
                 }
                 break;
             case "getOnlineUsersList":
@@ -172,11 +174,19 @@ wss.on('connection', (ws) => {
                     let offer = msg.offer;
                     if(onlineUsersList.has(targetUser)){
                         let targetUserObject = onlineUsersList.get(targetUser);
+                        let {ecdsaPubKey: sourceUserECDSAPubKey, ecdhPubKey: sourceUserECDHPubKey} = getPubKey(userID);
+                        let signature = msg.signature;
+
+                        // console.log(getPubKey(userID));
+
                         targetUserObject.wsConnection.send(JSON.stringify({
                             type: "WebRTCcallee",
                             sourceUser: userID,
                             targetUser,
                             offer,
+                            sourceUserECDHPubKey,
+                            sourceUserECDSAPubKey,
+                            signature,
                         }))
                     }
                 }catch(e){
@@ -185,15 +195,21 @@ wss.on('connection', (ws) => {
                 break;
             case "WebRTCcalleeAnswer":
                 {
+                    //这是callee发来的Answer
                     let sourceUser = msg.sourceUser;
                     let answer = msg.answer;
                     if(onlineUsersList.has(sourceUser)){
+                        let {ecdsaPubKey: targetUserECDSAPubKey, ecdhPubKey: targetUserECDHPubKey} = getPubKey(userID);
                         let sourceUserObject = onlineUsersList.get(sourceUser);
+                        let signature = msg.signature;
                         sourceUserObject.wsConnection.send(JSON.stringify({
                             type: "WebRTCcallerAnswer",
                             sourceUser,
                             targetUser: userID,
                             answer,
+                            targetUserECDSAPubKey,
+                            targetUserECDHPubKey,
+                            signature
                         }))
                     }
                 }
