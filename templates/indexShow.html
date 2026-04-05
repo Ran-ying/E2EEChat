@@ -6,6 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>E2EEChat</title>
     <script src="./crypto.js"></script>
+    <script>
+    // 切换显示/隐藏右侧介绍
+    function toggleDesc() {
+        const container = document.getElementById("mainContainer");
+        const rightPanels = document.querySelectorAll(".description");
+        
+        // 切换隐藏类
+        container.classList.toggle("hide-right");
+        rightPanels.forEach(panel => panel.classList.toggle("hidden"));
+    }
+    </script>
     <style>
         .container {
             display: grid;
@@ -26,17 +37,32 @@
             /* border: 1px solid #eee; */
             /* background: #fafafa; */
         }
+
+        /* 隐藏介绍时，左边占满整行 */
+        .container.hide-right {
+            grid-template-columns: 1fr !important;
+        }
+
+        .description {
+            display: block;
+        }
+
+        /* 隐藏样式 */
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
 
 <body>
     <h1>Разработка кроссплатформенной системы end-to-end зашифрованной связи на основе каналов данных WebRTC</h1>
-    <div class="container">
+    <button onclick="toggleDesc()">Развернуть / Свернуть</button>
+    <div class="container" id="mainContainer">
         <div>
-            <h3>Установка WSS соединение</h3>
+            <h3>0. Установка WSS соединение</h3>
             <span id="serverStatus">Статус сервера</span>
         </div>
-        <div>
+        <div class="description">
             <h3>Установка WSS соединение</h3>
             <div>
                 <p>
@@ -68,7 +94,7 @@
             Пароль: <input type="password" id="userPassword">
             <button onclick="newUser()">Создать</button>
         </div>
-        <div>
+        <div class="description">
             <h3>1. Создание нового пользователя</h3>
             <div>
                 <ol>
@@ -87,8 +113,7 @@
                     </li>
                     <li>После получения от сервера подтверждения об успешной проверке клиент шифрует закрытые ключи
                         ECDSA и ECDH введённым паролем и сохраняет их вместе с открытыми ключами в
-                        <code>localStorage</code> для последующего использования.</li>
-                    <li>
+                        <code>localStorage</code> для последующего использования.</li><li>
                         В реальной производственной среде для обработки информации необходимо использовать алгоритмы ГОСТ: например, для симметричного шифрования применять алгоритм <strong>Кузнечик</strong> вместо AES-GCM, для электронной подписи на эллиптических кривых — <strong>ГОСТ Р 34.10-2012/2018</strong> вместо ECDSA, для согласования ключей на эллиптических кривых — <strong>ГОСТ Р 34.10-2012/2018</strong> вместо ECDH.
                     </li>
                 </ol>
@@ -104,7 +129,7 @@
             <button onclick="loadUser()">Загрузка</button><br>
             ID пользователя: <span id="userID" style="color: green;"></span>
         </div>
-        <div>
+        <div class="description">
             <h3>2. Выбор пользователя</h3>
             <div>
                 <ol>
@@ -123,7 +148,7 @@
             <button onclick="getOnlineUsersList()">Обновить список</button>
             <div id="onlineUsersList"></div>
         </div>
-        <div>
+        <div class="description">
             <h3>3. Получение списка онлайн-пользователей</h3>
             <div>
                 <ol>
@@ -140,7 +165,7 @@
             <button onclick="connectTargetUser()">Подключиться</button>
             к пользователю: <span id="targetUser"></span>
         </div>
-        <div>
+        <div class="description">
             <h3>4. Установка WebRTC-соединения</h3>
             <div>
                 <ol>
@@ -165,7 +190,7 @@
             ECDSA: <span id="OOBotherECDSA"></span><br>
             ECDH: <span id="OOBotherECDH"></span><br>
         </div>
-        <div>
+        <div class="description">
             <ol>
                 <li>Как указано в конце четвертого шага, обмен ключами по протоколу WSS защищает только от атак «человек посередине» со стороны третьих лиц, но не позволяет доказать достоверность самого сервера. Фактически через интернет невозможно создать абсолютно доверенную систему: кто бы вы ни доверяли, тот может вас предать. Сервер может выступать как активный посредник (MITM), а система сертификации CA, на которую опирается WSS, может быть использована США в своих интересах.</li>
                 <li>Открытый исходный код также не решает этой проблемы полностью. HTML-код клиента открыт, можно с помощью хэша SHA проверить неизменность страницы, чтобы сервер не внедрил вредоносный JavaScript для кражи закрытых ключей. Однако невозможно гарантировать, что реальный серверный код совпадает с опубликованным открытым кодом.</li>
@@ -185,7 +210,7 @@
             <div id="originMessagePanel"></div>
             <input id="originMessage"><button onclick="sendOriginMessage()">Отправить</button>
         </div>
-        <div>
+        <div class="description">
             <h3>7. Открытый текст</h3>
             <div>
                 Здесь отображается <strong>открытый текст</strong> в коммуникации WebRTC, включая открытый текст, отправленный из формы данной области, а также исходный формат <strong>зашифрованного текста</strong>, отправленного из формы нижней области.
@@ -199,7 +224,7 @@
             <div id="encryptedMessagePanel"></div>
             <input id="encryptedMessage"><button onclick="sendEncryptedMessage()">Отправить</button>
         </div>
-        <div>
+        <div class="description">
             <h3>8. Зашифрованное сообщение</h3>
             <div>
             Здесь отображается расшифрованное зашифрованное сообщение. Код проверяет, является ли формат JSON и содержит ли поле <code>type</code> значение <code>encryptedMessage</code>. При соответствии открытый текст расшифровывается и показывается в данной области.
