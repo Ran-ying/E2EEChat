@@ -28,7 +28,8 @@ function renderTemplate(templatePath) {
 
 // 3. 创建HTTPS服务器
 const httpsServer = https.createServer(sslOptions, (req, res) => {
-    const parsedUrl = url.parse(req.url, true);
+    const base = `https://${req.headers.host}`;
+    const parsedUrl = new URL(req.url, base);
     const pathname = parsedUrl.pathname;
 
     // 设置响应头（UTF-8编码，解决中文乱码）
@@ -249,5 +250,5 @@ wss.on('connection', (ws) => {
 // 启动服务器
 const PORT = 4430;
 httpsServer.listen(PORT, () => {
-    console.log(`信令服务器启动：https://localhost:${PORT}`);
+    console.log(`Server Address: https://localhost:${PORT}`);
 });
