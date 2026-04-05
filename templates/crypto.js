@@ -569,7 +569,13 @@ class OOB {
 class WebRTC {
     static config = {
         iceServers: [
-
+            { urls: "stun:stun.cloudflare.com:3478" },
+            { urls: "stun:stun.l.google.com:19302" },
+            {
+                urls: "turn:relay.metered.ca:80",
+                username: "openrelayproject",
+                credential: "openrelayproject"
+            }
         ]
     };
     static callerUserID = null;
