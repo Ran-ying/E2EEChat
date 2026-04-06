@@ -291,7 +291,7 @@ class WS {
         console.log("WebSocket 已手动关闭");
     };
 
-    static receiveMessage = (object) => {
+    static receiveMessage = async (object) => {
         console.log(object.type);
         switch (object.type) {
             case "replyNewUser":
@@ -330,14 +330,16 @@ class WS {
                 break;
             case "WebRTCcallee":
                 //这是 Callee 收到服务器的消息，最终处理
-                WebRTC.receivePeerConnection(object.offer, object.sourceUser).then(async (answer) => {
-                    //验证caller签名
-                    const isValid = await CryptoUtils.verifySignature(
-                        object.sourceUserECDSAPubKey,
-                        object.sourceUserECDHPubKey,
-                        object.signature
-                    )
-                    if (isValid) {
+                //验证caller签名
+                const isCallerValid = await CryptoUtils.verifySignature(
+                    object.sourceUserECDSAPubKey,
+                    object.sourceUserECDHPubKey,
+                    object.signature
+                )
+                if (isCallerValid) {
+                    WebRTC.receivePeerConnection(object.offer, object.sourceUser).then(async (answer) => {
+                        ;
+
                         WS.targetUser = object.sourceUser
 
                         WS.otherecdhPubKey = object.sourceUserECDHPubKey;
@@ -373,23 +375,23 @@ class WS {
                             answer,
                             signature,
                         })
-                    }
-                    else {
-                        document.getElementById("OOBotherInfo").innerHTML += `❌`
-                    }
-                });
+                    });
+                }
+                else {
+                    document.getElementById("OOBotherInfo").innerHTML += `❌`
+                }
                 break;
             case "WebRTCcallerAnswer":
                 //这是 Caller 收到服务器的消息，最终处理
-                WebRTC.setAnswerPeerConnection(object.answer).then(async () => {
 
-                    //验证callee签名
-                    const isValid = await CryptoUtils.verifySignature(
-                        object.targetUserECDSAPubKey,
-                        object.targetUserECDHPubKey,
-                        object.signature
-                    )
-                    if (isValid) {
+                //验证callee签名
+                const isCalleeValid = await CryptoUtils.verifySignature(
+                    object.targetUserECDSAPubKey,
+                    object.targetUserECDHPubKey,
+                    object.signature
+                )
+                if (isCalleeValid) {
+                    WebRTC.setAnswerPeerConnection(object.answer).then(async () => {
                         WS.otherecdhPubKey = object.targetUserECDHPubKey;
                         WS.otherecdsaPubKey = object.targetUserECDSAPubKey;
 
@@ -415,12 +417,11 @@ class WS {
                         document.getElementById("OOBinfo").innerHTML = `${myECDSA} ${otherECDSA}`
 
                         // document.getElementById("OOBotherInfo").innerHTML += `✅`
-                    }
-                    else {
-                        document.getElementById("OOBotherInfo").innerHTML += `❌`
-                    }
-
-                })
+                    })
+                }
+                else {
+                    document.getElementById("OOBotherInfo").innerHTML += `❌`
+                }
         }
     }
     static userID = null;
@@ -582,7 +583,7 @@ class WebRTC {
         iceServers: [
             // 你自己的 STUN 服务器
             { urls: "stun:e2ee.rany.ing:3478" },
-            
+
             // 你自己的 TURN 服务器（中继必备，毕设核心）
             {
                 urls: "turn:e2ee.rany.ing:3478",
@@ -597,6 +598,37 @@ class WebRTC {
     static calleeUserID = null;
     static calleePC = null;
     static calleeChannel = null;
+    static getPCStatus = async (pc) => {
+        if (!pc) return "❌ 无连接";
+
+        try {
+            const stats = await pc.getStats();
+
+            // 找到唯一正在使用的线路
+            let selectedPair;
+            for (const stat of stats.values()) {
+                if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
+                    selectedPair = stat;
+                    break;
+                }
+            }
+            if (!selectedPair) return "🔍 协商中";
+
+            // 找到唯一对应的本地线路
+            const realCandidate = stats.get(selectedPair.localCandidateId);
+
+            // 🔥 就这一个 type！直接判断返回
+            const typeMap = {
+                host: "✅ Прямое локальное соединение (host)",
+                srflx: "✅ STUN P2P прямое соединение",
+                relay: "✅ TURN ретрансляция"
+            };
+
+            return typeMap[realCandidate.candidateType] || "🔍 已连接";
+        } catch (e) {
+            return "❌ 获取失败";
+        }
+    };
 
     // ========== A 发起方 ==========
     static createPeerConnection = async (targetUserID) => {
@@ -607,8 +639,17 @@ class WebRTC {
         WebRTC.callerChannel.onmessage = (e) => {
             WebRTC.receiveOriginMessage(e);
         };
-        WebRTC.callerChannel.onopen = () => {
-            console.log('✅ A 通道打开！');
+        WebRTC.callerChannel.onopen = async () => {
+            // console.log('✅ A 通道打开！');
+
+        };
+        // ✅ 监听连接真正成功
+        WebRTC.callerPC.onconnectionstatechange = async () => {
+            if (WebRTC.callerPC.connectionState === "connected") {
+                let type = await WebRTC.getPCStatus(WebRTC.callerPC);
+                console.log("Caller 连接成功！类型：", type);
+                document.getElementById("WebRTCType").innerHTML = type
+            }
         };
 
         // ========== ✅ ICE 必须写 ==========
@@ -632,14 +673,23 @@ class WebRTC {
         WebRTC.calleePC = new RTCPeerConnection(WebRTC.config);
 
         // 通道监听
+
         WebRTC.calleePC.ondatachannel = (e) => {
             WebRTC.calleeChannel = e.channel;
             WebRTC.calleeChannel.onmessage = (e) => {
                 WebRTC.receiveOriginMessage(e);
             };
-            WebRTC.calleeChannel.onopen = () => {
-                console.log('✅ B 通道打开！');
+            WebRTC.calleeChannel.onopen = async () => {
+                // console.log('✅ B 通道打开！');
             };
+        };
+        // 监听连接真正成功
+        WebRTC.calleePC.onconnectionstatechange = async () => {
+            if (WebRTC.calleePC.connectionState === "connected") {
+                let type = await WebRTC.getPCStatus(WebRTC.calleePC);
+                console.log("Callee 连接成功！类型：", type);
+                document.getElementById("WebRTCType").innerHTML = type
+            }
         };
 
         // ========== ✅ ICE 必须写 ==========
