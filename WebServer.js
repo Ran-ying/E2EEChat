@@ -53,6 +53,10 @@ const httpsServer = https.createServer(sslOptions, (req, res) => {
             res.writeHead(200);
             res.end(renderTemplate(path.join(__dirname, 'templates', pathname)));
             break;
+        case '/cryptoShow.js':
+            res.writeHead(200);
+            res.end(renderTemplate(path.join(__dirname, 'templates', pathname)));
+            break;
         // 404页面
         default:
             res.writeHead(404);
