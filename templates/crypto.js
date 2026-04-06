@@ -341,6 +341,7 @@ class WS {
                         ;
 
                         WS.targetUser = object.sourceUser
+                        document.getElementById('targetUser').innerHTML = WS.targetUser;
 
                         WS.otherecdhPubKey = object.sourceUserECDHPubKey;
                         WS.otherecdsaPubKey = object.sourceUserECDSAPubKey;
@@ -392,6 +393,10 @@ class WS {
                 )
                 if (isCalleeValid) {
                     WebRTC.setAnswerPeerConnection(object.answer).then(async () => {
+                        WS.targetUser = WebRTC.calleeUserID;
+                        document.getElementById('targetUser').innerHTML = WS.targetUser;
+
+
                         WS.otherecdhPubKey = object.targetUserECDHPubKey;
                         WS.otherecdsaPubKey = object.targetUserECDSAPubKey;
 
@@ -513,7 +518,6 @@ class WS {
     }
     static connectTargetUser = async () => {
         if (!this.targetUser) return;
-        document.getElementById('targetUser').innerHTML = WS.targetUser;
         let offer = await WebRTC.createPeerConnection(this.targetUser);
         let signature = await CryptoUtils.signUserId(WS.ecdsaPrivateKey, WS.ecdhPubKey);
         WS.send({
@@ -613,13 +617,18 @@ class WebRTC {
             const stats = await pc.getStats();
             let selectedPair;
 
+            let data = "";
+
             // 遍历查找已选中的线路
             for (const stat of stats.values()) {
+                data += JSON.stringify(stat);
                 if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
                     selectedPair = stat;
                     break;
                 }
             }
+
+            document.getElementById("errerr").innerHTML = data;
 
             // 🔥 核心修复：iOS 内核统计延迟，等待100ms重新获取一次
             if (!selectedPair) {
