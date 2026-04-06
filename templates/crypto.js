@@ -612,14 +612,31 @@ class WebRTC {
         try {
             const stats = await pc.getStats();
             let selectedPair;
+
+            // 遍历查找已选中的线路
             for (const stat of stats.values()) {
                 if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
                     selectedPair = stat;
                     break;
                 }
             }
-            if (!selectedPair) return "🔍 协商中";
 
+            // 🔥 核心修复：iOS 内核统计延迟，等待100ms重新获取一次
+            if (!selectedPair) {
+                await new Promise(r => setTimeout(r, 100));
+                const stats2 = await pc.getStats();
+                for (const stat of stats2.values()) {
+                    if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
+                        selectedPair = stat;
+                        break;
+                    }
+                }
+            }
+
+            // 最终仍未找到，返回通用连接成功
+            if (!selectedPair) return "✅ соединение";
+
+            // 获取真实线路类型
             const realCandidate = stats.get(selectedPair.localCandidateId);
             const typeMap = {
                 host: "✅ Прямое локальное соединение (host)",
@@ -627,7 +644,7 @@ class WebRTC {
                 relay: "✅ TURN ретрансляция"
             };
 
-            return typeMap[realCandidate.candidateType] || "🔍 已连接";
+            return typeMap[realCandidate.candidateType] || "✅ соединение";
         } catch (e) {
             return "❌ 获取失败";
         }
@@ -644,7 +661,7 @@ class WebRTC {
         WebRTC.callerChannel.onmessage = (e) => {
             WebRTC.receiveOriginMessage(e);
         };
-        WebRTC.callerChannel.onopen = async () => {};
+        WebRTC.callerChannel.onopen = async () => { };
 
         WebRTC.callerPC.onconnectionstatechange = async () => {
             if (WebRTC.callerPC.connectionState === "connected") {
@@ -680,7 +697,7 @@ class WebRTC {
             WebRTC.calleeChannel.onmessage = (e) => {
                 WebRTC.receiveOriginMessage(e);
             };
-            WebRTC.calleeChannel.onopen = async () => {};
+            WebRTC.calleeChannel.onopen = async () => { };
         };
 
         WebRTC.calleePC.onconnectionstatechange = async () => {
@@ -704,7 +721,7 @@ class WebRTC {
         await WebRTC.calleePC.setRemoteDescription(offer);
         // ✅ 设置完远端描述，刷新缓存的ICE候选
         WebRTC.flushIceCandidates("callee");
-        
+
         const answer = await WebRTC.calleePC.createAnswer();
         await WebRTC.calleePC.setLocalDescription(answer);
         return answer;
