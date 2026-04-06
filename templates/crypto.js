@@ -653,7 +653,7 @@ class WebRTC {
     // ========== A 发起方 ==========
     static createPeerConnection = async (targetUserID) => {
         // ✅ 自动调用权限（全平台必备）
-        await WebRTC.requestiOSMediaPermission();
+        // await WebRTC.requestiOSMediaPermission();
 
         WebRTC.callerPC = new RTCPeerConnection(WebRTC.config);
 
@@ -688,7 +688,7 @@ class WebRTC {
 
     // ========== B 接收方 ==========
     static receivePeerConnection = async (offer, sourceUserID) => {
-        await WebRTC.requestiOSMediaPermission();
+        // await WebRTC.requestiOSMediaPermission();
 
         WebRTC.calleePC = new RTCPeerConnection(WebRTC.config);
 
