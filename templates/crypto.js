@@ -171,6 +171,7 @@ class WS {
         WS.WSConnection.onopen = () => {
             WS.WSStatus = true;
             console.log("WebSocket 连接成功");
+            WS.loadUser();
         };
 
         // 连接关闭
@@ -434,7 +435,7 @@ class WS {
     static newUser = () => {
         WS.userPassword = document.getElementById("userPassword").value;
         if (WS.userPassword.length < 1) {
-            alert("password length > 1");
+            alert("password length < 1");
             return;
         }
         WS.send({
@@ -455,14 +456,18 @@ class WS {
     static loadUser = async () => {
 
         try {
-            let loadUserPassword = document.getElementById("loadUserPassword").value;
+            WS.userPassword = document.getElementById("loadUserPassword").value;
+            if (WS.userPassword.length < 1) {
+                alert("password length < 1");
+                return;
+            }
             const {
                 ecdsaPubKey,
                 ecdsaPrivateKey,
                 ecdhPubKey,
                 ecdhPrivateKey,
                 userID
-            } = await KeyStorage.loadKeyPairs(WS.userID, loadUserPassword);;
+            } = await KeyStorage.loadKeyPairs(WS.userID, WS.userPassword);;
             this.ecdsaPubKey = ecdsaPubKey;
             this.ecdsaPrivateKey = ecdsaPrivateKey;
             this.ecdhPubKey = ecdhPubKey;
@@ -599,37 +604,33 @@ class WebRTC {
 
     // ✅ 修复2：添加 ICE 候选缓存队列（解决iOS时序问题）
     static iceCandidateQueue = { caller: [], callee: [] };
-static getPCStatus = async (pc) => {
+
+
+    static getPCStatus = async (pc) => {
     if (!pc) return "❌ 无连接";
 
     try {
-        // 第一次获取
-        let stats = await pc.getStats();
+        const stats = await pc.getStats();
         let selectedPair = null;
+        let allCandidates = {};
 
+        // 一次遍历，同时拿：选中的线路 + 所有本地候选
         for (const stat of stats.values()) {
+            // 1. 找选中的线路
             if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
                 selectedPair = stat;
-                break;
             }
-        }
-
-        // 🔥 核心修复：iOS 第一次找不到候选，等 100ms 再拿一次
-        if (!selectedPair) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-            stats = await pc.getStats();
-            for (const stat of stats.values()) {
-                if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
-                    selectedPair = stat;
-                    break;
-                }
+            // 2. 把所有 local-candidate 存起来（按 ID 索引）
+            if (stat.type === "local-candidate") {
+                allCandidates[stat.id] = stat;
             }
         }
 
         if (!selectedPair) return "✅ соединение";
 
-        // 🔥 第二次获取后，一定能找到 local-candidate
-        const realCandidate = stats.get(selectedPair.localCandidateId);
+        // 🔥 直接从我们存的列表里拿（iOS 必成功！）
+        const realCandidate = allCandidates[selectedPair.localCandidateId];
+        if (!realCandidate) return "✅ соединение";
 
         const typeMap = {
             host: "✅ Прямое локальное соединение (host)",
@@ -637,7 +638,7 @@ static getPCStatus = async (pc) => {
             relay: "✅ TURN ретрансляция"
         };
 
-        return typeMap[realCandidate?.candidateType] || "✅ соединение";
+        return typeMap[realCandidate.candidateType] || "✅ соединение";
     } catch (e) {
         return "❌ 获取失败";
     }
