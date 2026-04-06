@@ -393,7 +393,7 @@ class WS {
                 )
                 if (isCalleeValid) {
                     WebRTC.setAnswerPeerConnection(object.answer).then(async () => {
-                        WS.targetUser = WebRTC.calleeUserID;
+                        WS.targetUser = object.targetUser;
                         document.getElementById('targetUser').innerHTML = WS.targetUser;
 
 
@@ -599,65 +599,49 @@ class WebRTC {
 
     // ✅ 修复2：添加 ICE 候选缓存队列（解决iOS时序问题）
     static iceCandidateQueue = { caller: [], callee: [] };
+static getPCStatus = async (pc) => {
+    if (!pc) return "❌ 无连接";
 
-    // 🔥 iOS 强制必备：申请媒体权限
-    static async requestiOSMediaPermission() {
-        try {
-            await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            console.log("✅ 媒体权限获取成功");
-        } catch (e) {
-            console.error("❌ 权限获取失败", e);
+    try {
+        // 第一次获取
+        let stats = await pc.getStats();
+        let selectedPair = null;
+
+        for (const stat of stats.values()) {
+            if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
+                selectedPair = stat;
+                break;
+            }
         }
-    }
 
-    static getPCStatus = async (pc) => {
-        if (!pc) return "❌ 无连接";
-
-        try {
-            const stats = await pc.getStats();
-            let selectedPair;
-
-            let data = "";
-
-            // 遍历查找已选中的线路
+        // 🔥 核心修复：iOS 第一次找不到候选，等 100ms 再拿一次
+        if (!selectedPair) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            stats = await pc.getStats();
             for (const stat of stats.values()) {
-                data += JSON.stringify(stat);
                 if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
                     selectedPair = stat;
                     break;
                 }
             }
-
-            document.getElementById("errerr").innerHTML = data;
-
-            // 🔥 核心修复：iOS 内核统计延迟，等待100ms重新获取一次
-            if (!selectedPair) {
-                await new Promise(r => setTimeout(r, 100));
-                const stats2 = await pc.getStats();
-                for (const stat of stats2.values()) {
-                    if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
-                        selectedPair = stat;
-                        break;
-                    }
-                }
-            }
-
-            // 最终仍未找到，返回通用连接成功
-            if (!selectedPair) return "✅ соединение";
-
-            // 获取真实线路类型
-            const realCandidate = stats.get(selectedPair.localCandidateId);
-            const typeMap = {
-                host: "✅ Прямое локальное соединение (host)",
-                srflx: "✅ STUN P2P прямое соединение",
-                relay: "✅ TURN ретрансляция"
-            };
-
-            return typeMap[realCandidate.candidateType] || "✅ соединение";
-        } catch (e) {
-            return "❌ 获取失败";
         }
-    };
+
+        if (!selectedPair) return "✅ соединение";
+
+        // 🔥 第二次获取后，一定能找到 local-candidate
+        const realCandidate = stats.get(selectedPair.localCandidateId);
+
+        const typeMap = {
+            host: "✅ Прямое локальное соединение (host)",
+            srflx: "✅ STUN P2P прямое соединение",
+            relay: "✅ TURN ретрансляция"
+        };
+
+        return typeMap[realCandidate?.candidateType] || "✅ соединение";
+    } catch (e) {
+        return "❌ 获取失败";
+    }
+};
 
     // ========== A 发起方 ==========
     static createPeerConnection = async (targetUserID) => {
