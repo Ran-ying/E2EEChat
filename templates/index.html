@@ -162,6 +162,7 @@
 
         <div>
             <h3>4. Установка WebRTC-соединения</h3>
+            <button onclick="iamphone">Я телефон!</button>
             <button onclick="connectTargetUser()">Подключиться</button>
             к пользователю: <span id="targetUser"></span><br>
             Тип WebRTC-соединения: <span id="WebRTCType"></span>
@@ -208,12 +209,12 @@
 
 
         <div>
-            <h3>7. Открытый текст</h3>
+            <h3>6. Открытый текст</h3>
             <div id="originMessagePanel"></div>
             <input id="originMessage"><button onclick="sendOriginMessage()">Отправить</button>
         </div>
         <div class="description">
-            <h3>7. Открытый текст</h3>
+            <h3>6. Открытый текст</h3>
             <div>
                 Здесь отображается <strong>открытый текст</strong> в коммуникации WebRTC, включая открытый текст, отправленный из формы данной области, а также исходный формат <strong>зашифрованного текста</strong>, отправленного из формы нижней области.
             </div>
@@ -222,12 +223,12 @@
 
 
         <div>
-            <h3>8. Зашифрованное сообщение</h3>
+            <h3>7. Зашифрованное сообщение</h3>
             <div id="encryptedMessagePanel"></div>
             <input id="encryptedMessage"><button onclick="sendEncryptedMessage()">Отправить</button>
         </div>
         <div class="description">
-            <h3>8. Зашифрованное сообщение</h3>
+            <h3>7. Зашифрованное сообщение</h3>
             <div>
             Здесь отображается расшифрованное зашифрованное сообщение. Код проверяет, является ли формат JSON и содержит ли поле <code>type</code> значение <code>encryptedMessage</code>. При соответствии открытый текст расшифровывается и показывается в данной области.
             </div>

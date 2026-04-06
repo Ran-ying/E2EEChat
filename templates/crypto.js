@@ -598,6 +598,16 @@ class WebRTC {
     static calleeUserID = null;
     static calleePC = null;
     static calleeChannel = null;
+    // 🔥 iOS 强制必备：申请媒体权限（不用音视频也得加！）
+static async requestiOSMediaPermission() {
+  try {
+    // 仅申请权限，不使用摄像头/麦克风
+    await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+    alert("Success!")
+  } catch (e) {
+    alert("Error!")
+  }
+}
     static getPCStatus = async (pc) => {
         if (!pc) return "❌ 无连接";
 
@@ -1028,6 +1038,9 @@ let sendOriginMessage = () => {
 let sendEncryptedMessage = () => {
     let message = document.getElementById("encryptedMessage").value;
     WebRTC.sendEncryptedMessage(message)
+}
+let iamphone = () => {
+    WebRTC.requestiOSMediaPermission();
 }
 window.onload = () => {
     loadOperatorUser();
