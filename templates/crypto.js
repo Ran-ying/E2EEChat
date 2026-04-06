@@ -331,36 +331,42 @@ class WS {
             case "WebRTCcallee":
                 //这是 Callee 收到服务器的消息，最终处理
                 WebRTC.receivePeerConnection(object.offer, object.sourceUser).then(async (answer) => {
-                    WS.targetUser = object.sourceUser
-
-                    WS.otherecdhPubKey = object.sourceUserECDHPubKey;
-                    WS.otherecdsaPubKey = object.sourceUserECDSAPubKey;
-
-                    document.getElementById("OOBmyUserID").innerHTML = WS.userID;
-                    document.getElementById("OOBmyECDH").innerHTML = await OOB.getEmojiFingerprint(WS.ecdhPubKey);
-                    document.getElementById("OOBmyECDSA").innerHTML = await OOB.getEmojiFingerprint(WS.ecdsaPubKey);
-                    document.getElementById("OOBotherUserID").innerHTML = object.sourceUser;
-                    document.getElementById("OOBotherECDH").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdhPubKey);
-                    document.getElementById("OOBotherECDSA").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdsaPubKey);
-
-                    WebRTC.callerUserID = object.sourceUser;
-                    WebRTC.calleeUserID = object.targetUser;
-
-                    document.getElementById("OOBmyInfo").innerHTML = `(Me, Callee)`
-                    document.getElementById("OOBotherInfo").innerHTML = `(Other, Caller)`
-                    // document.getElementById("callee").innerHTML = object.targetUser;
-                    // WebRTC.callerUserID = object.sourceUser;
-                    // document.getElementById("caller").innerHTML = object.sourceUser;
                     //验证caller签名
                     const isValid = await CryptoUtils.verifySignature(
-                        WS.otherecdsaPubKey,
-                        WS.targetUser,
+                        object.sourceUserECDSAPubKey,
+                        object.sourceUserECDHPubKey,
                         object.signature
                     )
                     if (isValid) {
-                        document.getElementById("OOBotherInfo").innerHTML += `✅`
+                        WS.targetUser = object.sourceUser
+
+                        WS.otherecdhPubKey = object.sourceUserECDHPubKey;
+                        WS.otherecdsaPubKey = object.sourceUserECDSAPubKey;
+
+                        document.getElementById("OOBmyUserID").innerHTML = WS.userID;
+                        // document.getElementById("OOBmyECDH").innerHTML = await OOB.getEmojiFingerprint(WS.ecdhPubKey);
+                        let myECDSA = await OOB.getEmojiFingerprint(WS.ecdsaPubKey);
+                        document.getElementById("OOBmyECDSA").innerHTML = myECDSA;
+                        document.getElementById("OOBotherUserID").innerHTML = object.sourceUser;
+                        // document.getElementById("OOBotherECDH").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdhPubKey);
+                        let otherECDSA = await OOB.getEmojiFingerprint(WS.otherecdsaPubKey);
+                        document.getElementById("OOBotherECDSA").innerHTML = otherECDSA;
+
+                        document.getElementById("OOBinfo").innerHTML = `${otherECDSA} ${myECDSA}`
+
+                        WebRTC.callerUserID = object.sourceUser;
+                        WebRTC.calleeUserID = object.targetUser;
+
+                        document.getElementById("OOBmyInfo").innerHTML = `(Me, Callee)`
+                        document.getElementById("OOBotherInfo").innerHTML = `(Other, Caller)`
+                        // document.getElementById("callee").innerHTML = object.targetUser;
+                        // WebRTC.callerUserID = object.sourceUser;
+                        // document.getElementById("caller").innerHTML = object.sourceUser;
+
+
+                        // document.getElementById("OOBotherInfo").innerHTML += `✅`
                         //给出自己的 callee 签名
-                        let signature = await CryptoUtils.signUserId(WS.ecdsaPrivateKey, WS.userID);
+                        let signature = await CryptoUtils.signUserId(WS.ecdsaPrivateKey, WS.ecdhPubKey);
                         WS.send({
                             type: "WebRTCcalleeAnswer",
                             sourceUser: object.sourceUser,
@@ -376,34 +382,39 @@ class WS {
             case "WebRTCcallerAnswer":
                 //这是 Caller 收到服务器的消息，最终处理
                 WebRTC.setAnswerPeerConnection(object.answer).then(async () => {
-                    WS.otherecdhPubKey = object.targetUserECDHPubKey;
-                    WS.otherecdsaPubKey = object.targetUserECDSAPubKey;
-
-
-                    WebRTC.callerUserID = object.sourceUser;
-                    WebRTC.calleeUserID = object.targetUser;
-                    // document.getElementById("callee").innerHTML = object.targetUser;
-                    // WebRTC.callerUserID = object.sourceUser;
-                    // document.getElementById("caller").innerHTML = object.sourceUser;
-                    document.getElementById("OOBmyInfo").innerHTML = `(Me, Caller)`
-                    document.getElementById("OOBotherInfo").innerHTML = `(Other, Callee)`
-
-
-                    document.getElementById("OOBmyUserID").innerHTML = WS.userID;
-                    document.getElementById("OOBmyECDH").innerHTML = await OOB.getEmojiFingerprint(WS.ecdhPubKey);
-                    document.getElementById("OOBmyECDSA").innerHTML = await OOB.getEmojiFingerprint(WS.ecdsaPubKey);
-                    document.getElementById("OOBotherUserID").innerHTML = WebRTC.calleeUserID;
-                    document.getElementById("OOBotherECDH").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdhPubKey);
-                    document.getElementById("OOBotherECDSA").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdsaPubKey);
 
                     //验证callee签名
                     const isValid = await CryptoUtils.verifySignature(
-                        WS.otherecdsaPubKey,
-                        WS.targetUser,
+                        object.targetUserECDSAPubKey,
+                        object.targetUserECDHPubKey,
                         object.signature
                     )
                     if (isValid) {
-                        document.getElementById("OOBotherInfo").innerHTML += `✅`
+                        WS.otherecdhPubKey = object.targetUserECDHPubKey;
+                        WS.otherecdsaPubKey = object.targetUserECDSAPubKey;
+
+
+                        WebRTC.callerUserID = object.sourceUser;
+                        WebRTC.calleeUserID = object.targetUser;
+                        // document.getElementById("callee").innerHTML = object.targetUser;
+                        // WebRTC.callerUserID = object.sourceUser;
+                        // document.getElementById("caller").innerHTML = object.sourceUser;
+                        document.getElementById("OOBmyInfo").innerHTML = `(Me, Caller)`
+                        document.getElementById("OOBotherInfo").innerHTML = `(Other, Callee)`
+
+
+                        document.getElementById("OOBmyUserID").innerHTML = WS.userID;
+                        // document.getElementById("OOBmyECDH").innerHTML = await OOB.getEmojiFingerprint(WS.ecdhPubKey);
+                        let myECDSA = await OOB.getEmojiFingerprint(WS.ecdsaPubKey);
+                        document.getElementById("OOBmyECDSA").innerHTML = myECDSA;
+                        document.getElementById("OOBotherUserID").innerHTML = WebRTC.calleeUserID;
+                        // document.getElementById("OOBotherECDH").innerHTML = await OOB.getEmojiFingerprint(WS.otherecdhPubKey);
+                        let otherECDSA = await OOB.getEmojiFingerprint(WS.otherecdsaPubKey);
+                        document.getElementById("OOBotherECDSA").innerHTML = otherECDSA;
+
+                        document.getElementById("OOBinfo").innerHTML = `${myECDSA} ${otherECDSA}`
+
+                        // document.getElementById("OOBotherInfo").innerHTML += `✅`
                     }
                     else {
                         document.getElementById("OOBotherInfo").innerHTML += `❌`
@@ -503,7 +514,7 @@ class WS {
         if (!this.targetUser) return;
         document.getElementById('targetUser').innerHTML = WS.targetUser;
         let offer = await WebRTC.createPeerConnection(this.targetUser);
-        let signature = await CryptoUtils.signUserId(WS.ecdsaPrivateKey, WS.userID);
+        let signature = await CryptoUtils.signUserId(WS.ecdsaPrivateKey, WS.ecdhPubKey);
         WS.send({
             type: "WebRTCcaller",
             targetUser: WS.targetUser,
