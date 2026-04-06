@@ -458,7 +458,7 @@ class WS {
         try {
             WS.userPassword = document.getElementById("loadUserPassword").value;
             if (WS.userPassword.length < 1) {
-                alert("password length < 1");
+                // alert("password length < 1");
                 return;
             }
             const {
@@ -607,42 +607,42 @@ class WebRTC {
 
 
     static getPCStatus = async (pc) => {
-    if (!pc) return "❌ 无连接";
+        if (!pc) return "❌ 无连接";
 
-    try {
-        const stats = await pc.getStats();
-        let selectedPair = null;
-        let allCandidates = {};
+        try {
+            const stats = await pc.getStats();
+            let selectedPair = null;
+            let allCandidates = {};
 
-        // 一次遍历，同时拿：选中的线路 + 所有本地候选
-        for (const stat of stats.values()) {
-            // 1. 找选中的线路
-            if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
-                selectedPair = stat;
+            // 一次遍历，同时拿：选中的线路 + 所有本地候选
+            for (const stat of stats.values()) {
+                // 1. 找选中的线路
+                if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
+                    selectedPair = stat;
+                }
+                // 2. 把所有 local-candidate 存起来（按 ID 索引）
+                if (stat.type === "local-candidate") {
+                    allCandidates[stat.id] = stat;
+                }
             }
-            // 2. 把所有 local-candidate 存起来（按 ID 索引）
-            if (stat.type === "local-candidate") {
-                allCandidates[stat.id] = stat;
-            }
+
+            if (!selectedPair) return "✅ соединение";
+
+            // 🔥 直接从我们存的列表里拿（iOS 必成功！）
+            const realCandidate = allCandidates[selectedPair.localCandidateId];
+            if (!realCandidate) return "✅ соединение";
+
+            const typeMap = {
+                host: "✅ Прямое локальное соединение (host)",
+                srflx: "✅ STUN P2P прямое соединение",
+                relay: "✅ TURN ретрансляция"
+            };
+
+            return typeMap[realCandidate.candidateType] || "✅ соединение";
+        } catch (e) {
+            return "❌ 获取失败";
         }
-
-        if (!selectedPair) return "✅ соединение";
-
-        // 🔥 直接从我们存的列表里拿（iOS 必成功！）
-        const realCandidate = allCandidates[selectedPair.localCandidateId];
-        if (!realCandidate) return "✅ соединение";
-
-        const typeMap = {
-            host: "✅ Прямое локальное соединение (host)",
-            srflx: "✅ STUN P2P прямое соединение",
-            relay: "✅ TURN ретрансляция"
-        };
-
-        return typeMap[realCandidate.candidateType] || "✅ соединение";
-    } catch (e) {
-        return "❌ 获取失败";
-    }
-};
+    };
 
     // ========== A 发起方 ==========
     static createPeerConnection = async (targetUserID) => {
