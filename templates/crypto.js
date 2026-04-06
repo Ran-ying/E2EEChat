@@ -577,19 +577,13 @@ class OOB {
         return emojis.join(' ');
     }
 }
-
 class WebRTC {
     static config = {
         iceServers: [
-            // 你自己的 STUN 服务器
             { urls: "stun:e2ee.rany.ing:3478" },
-
-            // 你自己的 TURN 服务器（中继必备，毕设核心）
-            {
-                urls: "turn:e2ee.rany.ing:3478",
-                username: "e2ee",
-                credential: "123456"
-            }
+            // ✅ 修复1：手机流量必备，添加 UDP+TCP 双协议 TURN
+            { urls: "turn:e2ee.rany.ing:3478?transport=udp", username: "e2ee", credential: "123456" },
+            { urls: "turn:e2ee.rany.ing:3478?transport=tcp", username: "e2ee", credential: "123456" }
         ]
     };
     static callerUserID = null;
@@ -598,23 +592,25 @@ class WebRTC {
     static calleeUserID = null;
     static calleePC = null;
     static calleeChannel = null;
-    // 🔥 iOS 强制必备：申请媒体权限（不用音视频也得加！）
-static async requestiOSMediaPermission() {
-  try {
-    // 仅申请权限，不使用摄像头/麦克风
-    await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
-    alert("Success!")
-  } catch (e) {
-    alert("Error!")
-  }
-}
+
+    // ✅ 修复2：添加 ICE 候选缓存队列（解决iOS时序问题）
+    static iceCandidateQueue = { caller: [], callee: [] };
+
+    // 🔥 iOS 强制必备：申请媒体权限
+    static async requestiOSMediaPermission() {
+        try {
+            await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            console.log("✅ 媒体权限获取成功");
+        } catch (e) {
+            console.error("❌ 权限获取失败", e);
+        }
+    }
+
     static getPCStatus = async (pc) => {
         if (!pc) return "❌ 无连接";
 
         try {
             const stats = await pc.getStats();
-
-            // 找到唯一正在使用的线路
             let selectedPair;
             for (const stat of stats.values()) {
                 if (stat.type === "candidate-pair" && stat.nominated && stat.state === "succeeded") {
@@ -624,10 +620,7 @@ static async requestiOSMediaPermission() {
             }
             if (!selectedPair) return "🔍 协商中";
 
-            // 找到唯一对应的本地线路
             const realCandidate = stats.get(selectedPair.localCandidateId);
-
-            // 🔥 就这一个 type！直接判断返回
             const typeMap = {
                 host: "✅ Прямое локальное соединение (host)",
                 srflx: "✅ STUN P2P прямое соединение",
@@ -642,18 +635,17 @@ static async requestiOSMediaPermission() {
 
     // ========== A 发起方 ==========
     static createPeerConnection = async (targetUserID) => {
+        // ✅ 自动调用权限（全平台必备）
+        await WebRTC.requestiOSMediaPermission();
+
         WebRTC.callerPC = new RTCPeerConnection(WebRTC.config);
 
-        // 通道
         WebRTC.callerChannel = WebRTC.callerPC.createDataChannel("chat");
         WebRTC.callerChannel.onmessage = (e) => {
             WebRTC.receiveOriginMessage(e);
         };
-        WebRTC.callerChannel.onopen = async () => {
-            // console.log('✅ A 通道打开！');
+        WebRTC.callerChannel.onopen = async () => {};
 
-        };
-        // ✅ 监听连接真正成功
         WebRTC.callerPC.onconnectionstatechange = async () => {
             if (WebRTC.callerPC.connectionState === "connected") {
                 let type = await WebRTC.getPCStatus(WebRTC.callerPC);
@@ -662,7 +654,6 @@ static async requestiOSMediaPermission() {
             }
         };
 
-        // ========== ✅ ICE 必须写 ==========
         WebRTC.callerPC.onicecandidate = (event) => {
             if (event.candidate) {
                 WS.send({
@@ -680,20 +671,18 @@ static async requestiOSMediaPermission() {
 
     // ========== B 接收方 ==========
     static receivePeerConnection = async (offer, sourceUserID) => {
-        WebRTC.calleePC = new RTCPeerConnection(WebRTC.config);
+        await WebRTC.requestiOSMediaPermission();
 
-        // 通道监听
+        WebRTC.calleePC = new RTCPeerConnection(WebRTC.config);
 
         WebRTC.calleePC.ondatachannel = (e) => {
             WebRTC.calleeChannel = e.channel;
             WebRTC.calleeChannel.onmessage = (e) => {
                 WebRTC.receiveOriginMessage(e);
             };
-            WebRTC.calleeChannel.onopen = async () => {
-                // console.log('✅ B 通道打开！');
-            };
+            WebRTC.calleeChannel.onopen = async () => {};
         };
-        // 监听连接真正成功
+
         WebRTC.calleePC.onconnectionstatechange = async () => {
             if (WebRTC.calleePC.connectionState === "connected") {
                 let type = await WebRTC.getPCStatus(WebRTC.calleePC);
@@ -702,7 +691,6 @@ static async requestiOSMediaPermission() {
             }
         };
 
-        // ========== ✅ ICE 必须写 ==========
         WebRTC.calleePC.onicecandidate = (event) => {
             if (event.candidate) {
                 WS.send({
@@ -714,6 +702,9 @@ static async requestiOSMediaPermission() {
         };
 
         await WebRTC.calleePC.setRemoteDescription(offer);
+        // ✅ 设置完远端描述，刷新缓存的ICE候选
+        WebRTC.flushIceCandidates("callee");
+        
         const answer = await WebRTC.calleePC.createAnswer();
         await WebRTC.calleePC.setLocalDescription(answer);
         return answer;
@@ -722,9 +713,11 @@ static async requestiOSMediaPermission() {
     // ========== A 设置 Answer ==========
     static setAnswerPeerConnection = async (answer) => {
         await WebRTC.callerPC.setRemoteDescription(answer);
+        // ✅ 设置完Answer，刷新缓存的ICE候选
+        WebRTC.flushIceCandidates("caller");
     };
 
-    // ========== 安全发送消息（永不报错） ==========
+    // ========== 安全发送消息 ==========
     static sendOriginMessage = async (message) => {
         return new Promise((resolve, reject) => {
             let channel;
@@ -733,7 +726,6 @@ static async requestiOSMediaPermission() {
 
             if (channel && channel.readyState === 'open') {
                 channel.send(message);
-                // ✅ 安全显示原始消息（纯文本，不执行HTML）
                 let originPanel = document.getElementById("originMessagePanel");
                 let text1 = document.createTextNode(`Me: ${message}`);
                 originPanel.appendChild(text1);
@@ -747,8 +739,6 @@ static async requestiOSMediaPermission() {
     };
 
     static sendEncryptedMessage = async (message) => {
-
-        // 用对方的ECDH公钥加密消息
         const encryptedMessage = await CryptoUtils.encryptWithPeerPubKey(
             WS.ecdhPrivateKey,
             WS.otherecdhPubKey,
@@ -759,10 +749,8 @@ static async requestiOSMediaPermission() {
             type: "encryptedMessage",
             encryptedMessage,
         })
-        // 发送加密消息
         await WebRTC.sendOriginMessage(answer);
 
-        // ✅ 安全显示解密消息（绝对防XSS）
         let encPanel = document.getElementById("encryptedMessagePanel");
         let text2 = document.createTextNode(`Me: ${message}`);
         encPanel.appendChild(text2);
@@ -774,33 +762,26 @@ static async requestiOSMediaPermission() {
             let answer = JSON.parse(e.data);
             switch (answer.type) {
                 case "encryptedMessage":
-
-                    // ✅ 安全显示原始消息（纯文本，不执行HTML）
                     let originPanel = document.getElementById("originMessagePanel");
                     let text1 = document.createTextNode(`${WS.targetUser}: ${e.data}`);
                     originPanel.appendChild(text1);
                     originPanel.appendChild(document.createElement("br"));
 
-                    // 解密
                     let decryptedMsg = await CryptoUtils.decryptWithPrivateKey(
                         WS.ecdhPrivateKey,
                         WS.otherecdhPubKey,
                         answer.encryptedMessage
                     );
 
-                    // ✅ 安全显示解密消息（绝对防XSS）
                     let encPanel = document.getElementById("encryptedMessagePanel");
                     let text2 = document.createTextNode(`${WS.targetUser}: ${decryptedMsg}`);
                     encPanel.appendChild(text2);
                     encPanel.appendChild(document.createElement("br"));
-
                     break;
-
                 default:
                     throw Error();
             }
         } catch (ex) {
-            // ✅ 安全显示错误消息
             let originPanel = document.getElementById("originMessagePanel");
             let text = document.createTextNode(`${WS.targetUser}: ${e.data}`);
             originPanel.appendChild(text);
@@ -808,11 +789,36 @@ static async requestiOSMediaPermission() {
         }
     }
 
-    // ========== ✅ 新增：添加 ICE 方法 ==========
+    // ========== ✅ 修复3：带缓存的 ICE 候选添加 ==========
     static addIceCandidate = async (candidate) => {
+        const isCaller = !!WebRTC.callerPC;
         const pc = WebRTC.callerPC || WebRTC.calleePC;
-        if (pc) {
+        const type = isCaller ? "caller" : "callee";
+
+        // 如果连接未准备好，缓存候选
+        if (!pc || !pc.remoteDescription) {
+            WebRTC.iceCandidateQueue[type].push(candidate);
+            console.log("⏳ ICE 候选已缓存");
+            return;
+        }
+
+        try {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            console.log("✅ ICE 候选添加成功");
+        } catch (e) {
+            console.error("❌ ICE 添加失败", e);
+        }
+    };
+
+    // ✅ 修复4：清空缓存的 ICE 候选
+    static flushIceCandidates = (type) => {
+        const pc = type === "caller" ? WebRTC.callerPC : WebRTC.calleePC;
+        if (!pc) return;
+
+        const queue = WebRTC.iceCandidateQueue[type];
+        while (queue.length) {
+            const candidate = queue.shift();
+            pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
         }
     };
 }
