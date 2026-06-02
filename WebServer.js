@@ -44,16 +44,7 @@ const httpsServer = https.createServer(sslOptions, (req, res) => {
             res.writeHead(200);
             res.end(homeHtml);
             break;
-        case '/indexShow.html':
-            const indexShow = renderTemplate(path.join(__dirname, 'templates/indexShow.html'));
-            res.writeHead(200);
-            res.end(indexShow);
-            break;
         case '/crypto.js':
-            res.writeHead(200);
-            res.end(renderTemplate(path.join(__dirname, 'templates', pathname)));
-            break;
-        case '/cryptoShow.js':
             res.writeHead(200);
             res.end(renderTemplate(path.join(__dirname, 'templates', pathname)));
             break;

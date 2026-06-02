@@ -532,9 +532,6 @@ class WS {
             signature,
         })
     }
-    // 6. 发送加密消息给其他客户端
-    static sendEncryptedMessage = async (peerUserId, message) => {
-    }
     static uploadPublicKey = async (userId) => {
 
         // ---------------- 客户端业务逻辑 ----------------
